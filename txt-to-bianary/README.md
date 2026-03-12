@@ -18,20 +18,171 @@ A high-performance C++ utility that converts large text event data files to a co
 - **Progress Reporting**: Real-time statistics on processing status
 - **Cross-platform**: Works on Linux, Windows, and macOS
 
-## Compilation
+## Quick Start
+
+### Prerequisites
+The only thing you need is a C++ compiler and the zlib library (both come standard on macOS).
+
+### Compile
 
 ```bash
-# Linux/macOS (GCC)
-g++ -O2 -std=c++17 -o evt2bin evt2bin.cpp
-
-# Windows (MSVC)
-cl /O2 /std:c++17 /Fe:evt2bin.exe evt2bin.cpp
+make
 ```
+
+The binary will be built into `bin/evt2bin` (or `bin/evt2bin.exe` on Windows).
+
+## Platform Setup
+
+### macOS
+Nothing needed — zlib ships with Xcode tools. Just run `make`.
+
+### Linux (Debian/Ubuntu)
+```bash
+sudo apt install g++ zlib1g-dev make
+make
+```
+
+### Linux (Fedora/RHEL)
+```bash
+sudo dnf install gcc-c++ zlib-devel make
+make
+```
+
+### Windows (Option 1: MSYS2/MinGW)
+
+**Step 1: Download and install MSYS2**
+1. Go to https://www.msys2.org/
+2. Download the MSYS2 installer (msys2-x86_64-*.exe)
+3. Run the installer and follow the setup wizard (default installation is fine)
+4. After installation, launch **MSYS2 MinGW 64-bit** from the Windows Start menu (NOT "MSYS2 MSYS")
+   - This opens a terminal-like window
+
+**Step 2: Install build tools**
+In the MSYS2 terminal, run:
+```bash
+pacman -S --needed mingw-w64-x86_64-gcc mingw-w64-x86_64-zlib make
+```
+When prompted, press `y` to confirm installation.
+
+**Step 3: Build evt2bin**
+Navigate to the project folder and build (in MSYS2 terminal):
+```bash
+cd /c/path/to/your/project/txt-to-bianary
+make
+```
+The compiled binary will be in `bin/evt2bin.exe`.
+
+**Step 4: Run evt2bin**
+Once built, you can run `evt2bin.exe` from:
+- **MSYS2 terminal:** `./bin/evt2bin events.txt events.bin`
+- **Windows Command Prompt/PowerShell:** `bin\evt2bin.exe events.txt events.bin`
+- **Windows Explorer:** Double-click `evt2bin.exe` (drag event files onto it)
+
+The build step **only** needs MSYS2, but the compiled binary runs anywhere on Windows.
+
+---
+
+### Windows (Option 2: WSL - Windows Subsystem for Linux)
+
+WSL lets you run Linux directly on Windows. This is often simpler if you're comfortable with Linux.
+
+**Step 1: Enable WSL**
+1. Open PowerShell as Administrator
+2. Run:
+   ```powershell
+   wsl --install --distribution Ubuntu
+   ```
+3. Restart your computer
+4. After restart, open the Ubuntu app from the Start menu and wait for setup to complete
+
+**Step 2: Install dependencies**
+In the Ubuntu terminal:
+```bash
+sudo apt update
+sudo apt install g++ zlib1g-dev make
+```
+
+**Step 3: Build evt2bin**
+Navigate to the project and build:
+```bash
+cd /mnt/c/path/to/your/project/txt-to-bianary
+make
+```
+
+**Step 4: Use evt2bin**
+```bash
+./bin/evt2bin events.txt events.bin
+```
+
+---
+
+### Windows (Option 3: Native MSVC)
+
+If you have Visual Studio 2017 or later installed:
+
+**Step 1: Install dependencies**
+- zlib is available through vcpkg (Microsoft's package manager for C++)
+- Or pre-compiled zlib binaries from https://github.com/madler/zlib/releases
+
+**Step 2: Modify Makefile**
+The current Makefile uses GCC syntax. You'll need to either:
+- Use a GCC-compatible environment (Options 1 or 2 above are recommended)
+- Or compile manually with MSVC (requires adjusting compiler flags)
+
+**Recommendation:** Start with **Option 1 (MSYS2)** — it's the most straightforward and requires no additional software beyond the MSYS2 installer.
+
+## Build Options
+
+```bash
+make              # Standard build (requires system zlib at runtime)
+make static       # Self-contained binary (no dependencies on target machine)
+make clean        # Remove compiled files and bin/ folder
+make help         # Show all options
+```
+
+---
+
+## Distributing a Pre-compiled Binary
+
+### Option A: Use GitHub Actions for Automatic Builds (Recommended)
+
+GitHub Actions automatically builds your code for Windows, macOS, and Linux whenever you create a release. Users just download the `.exe` (or binary for their platform) and run it.
+
+**Setup (one-time):**
+
+1. Ensure the `.github/workflows/build.yml` file is committed to your repository
+2. Make sure your `Makefile` has the `static` target (it already does)
+3. Commit and push to GitHub
+
+**Creating a release:**
+
+```bash
+# Tag your code
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+GitHub Actions will automatically:
+1. Build `evt2bin` for Windows, macOS, and Linux
+2. Create a GitHub release
+3. Attach the compiled binaries as downloadable assets
+
+Users can then download the binary from your GitHub "Releases" page without any compilation needed.
+
+---
+
+### Option B: Build Once Manually and Share
+
+Build the binary once on a Windows machine (takes 2 minutes with MSYS2), then upload `bin/evt2bin.exe` to a GitHub release. Users download and run directly.
+
+---
+
+**For now:** You can use either approach. GitHub Actions (Option A) is more maintainable long-term, but if you just want something working quickly, build once on Windows and share the `.exe`.
 
 ## Usage
 
 ```bash
-evt2bin <input.txt> <output.bin> [options]
+./bin/evt2bin <input.txt> <output.bin> [options]
 ```
 
 ### Options
@@ -43,14 +194,26 @@ evt2bin <input.txt> <output.bin> [options]
 
 ```bash
 # Basic conversion
-evt2bin events.txt events.bin
+./bin/evt2bin events.txt events.bin
 
 # Convert and delete input file
-evt2bin events.txt events.bin --delete-input
+./bin/evt2bin events.txt events.bin --delete-input
 
 # Specify custom memory chunk size
-evt2bin events.txt events.bin --chunk-mb 256
+./bin/evt2bin events.txt events.bin --chunk-mb 256
 ```
+
+## Converting Binary Back to CSV
+
+Use `bin2csv.py` to decompress and convert binary files back to CSV format:
+
+```bash
+python3 bin2csv.py events.bin events.csv
+```
+
+The CSV will have columns: `timestamp,channel,filter`
+
+> **Note:** `bin2csv.py` requires only Python 3 — no compilation needed. It automatically handles column-oriented compressed format (EVTCOL v2) and legacy interleaved format (EVTBIN v1).
 
 ## Input Format
 

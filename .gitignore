@@ -1,0 +1,33 @@
+# Build artifacts
+bin/
+*.o
+*.a
+*.so
+*.dll
+*.exe
+
+# Temporary files (from evt2bin)
+*.bin.tmp.run.*
+
+# Output files (user-generated)
+*.bin
+*.csv
+*.zst
+*.gz
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# IDE/Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Generated files
+output.csv
+test.bin

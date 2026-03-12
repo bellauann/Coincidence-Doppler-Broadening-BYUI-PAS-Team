@@ -1,18 +1,21 @@
 /*
  * evt2bin - Convert text event files to compact binary format
  *
- * Binary format spec:
- *   [8 bytes]  Magic: "EVTBIN\0\0"
- *   [1 byte]   Version: 1
- *   [1 byte]   Number of metadata lines (5)
+ * Binary format spec (EVTCOL v2):
+ *   [8 bytes]    Magic: "EVTCOL\0\0"
+ *   [1 byte]     Version: 2
+ *   [1 byte]     Number of metadata lines (5)
  *   For each metadata line:
  *     [2 bytes LE] Length of string
  *     [N bytes]    String data (no null terminator)
- *   [8 bytes LE]   Number of events (uint64)
- *   For each event:
- *     [1-9 bytes]  Varint-encoded timestamp delta from previous (first = absolute)
- *     [2 bytes LE] Channel number (uint16)
+ *   [8 bytes LE]  Number of events (uint64)
+ *   [4 bytes LE]  Compressed timestamp column size in bytes
+ *   [N bytes]     zlib-compressed varint-encoded timestamp deltas
+ *                 (first delta = absolute timestamp, rest = delta from previous)
+ *   [4 bytes LE]  Compressed channel column size in bytes
+ *   [N bytes]     zlib-compressed uint16 LE channel values
  *
+ * Column-oriented layout compresses each data type separately for better ratios.
  * Varint encoding: 7 bits per byte, MSB=1 means more bytes follow.
  *
  * Sorting strategy:
@@ -21,9 +24,8 @@
  *   Otherwise, an external merge sort is used:
  *     Pass 1 - read chunks up to the memory limit, sort each, write as a
  *              temporary run file of fixed 10-byte raw records.
- *     Pass 2 - k-way merge all run files with a min-heap (one buffered record
- *              per run), writing the final varint-encoded output.
- *   Peak RAM during merge = one read buffer per run file (configurable).
+ *     Pass 2 - k-way merge all run files with a min-heap, collecting all
+ *              sorted events into memory, then write compressed column output.
  *   Temp files are deleted on both success and failure.
  *
  * Usage:
@@ -44,6 +46,7 @@
 #include <queue>
 #include <string>
 #include <vector>
+#include <zlib.h>
 
 #if defined(_WIN32)
 #  define WIN32_LEAN_AND_MEAN
@@ -100,6 +103,21 @@ static int write_varint(uint8_t* buf, uint64_t value) {
         buf[n++] = byte;
     } while (value != 0);
     return n;
+}
+
+// ---------------------------------------------------------------------------
+// zlib compression helper
+// ---------------------------------------------------------------------------
+
+static std::vector<uint8_t> zlib_compress(const uint8_t* data, size_t len) {
+    uLongf out_size = compressBound((uLong)len);
+    std::vector<uint8_t> out(out_size);
+    if (compress2(out.data(), &out_size, data, (uLong)len, Z_BEST_COMPRESSION) != Z_OK) {
+        fprintf(stderr, "Error: zlib compression failed\n");
+        return {};
+    }
+    out.resize((size_t)out_size);
+    return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -473,55 +491,33 @@ int main(int argc, char* argv[]) {
         total_events, filtered_count, skipped_count, (int)run_paths.size());
 
     // -------------------------------------------------------------------------
-    // Pass 2 -- k-way merge all run files into final output
+    // Pass 2 -- k-way merge all run files, collecting into column buffers
     // -------------------------------------------------------------------------
 
-    // Open output
-    FILE* fout = fopen(output_path, "wb");
-    if (!fout) {
-        perror(output_path);
-        for (auto& rp : run_paths) remove(rp.c_str());
-        return 1;
-    }
-    Writer writer(fout);
-
-    // Write file header
-    const char MAGIC[8] = {'E','V','T','B','I','N','\0','\0'};
-    writer.write(MAGIC, 8);
-    writer.write_u8(1);
-    writer.write_u8((uint8_t)NUM_HEADERS);
-    for (int i = 0; i < NUM_HEADERS; i++) writer.write_str16(meta[i]);
-    writer.write_u64le(total_events);
+    std::vector<uint64_t> out_ts;
+    std::vector<uint16_t> out_ch;
+    out_ts.reserve((size_t)total_events);
+    out_ch.reserve((size_t)total_events);
 
     if (run_paths.size() == 1) {
-        // Only one run: it's already sorted, just stream it directly
-        fprintf(stderr, "Pass 2: single run, streaming directly to output...\n");
+        // Only one run: stream directly into column buffers
+        fprintf(stderr, "Pass 2: collecting single run into column buffers...\n");
         RunReader rr(run_paths[0]);
         if (!rr.open_ok()) {
             fprintf(stderr, "Error: could not open run file.\n");
-            fclose(fout);
             for (auto& rp : run_paths) remove(rp.c_str());
             return 1;
         }
-        uint64_t prev_ts = 0, written = 0;
         while (rr.fill()) {
             const RawEvent& e = rr.current();
-            uint64_t delta = (written == 0) ? e.ts : (e.ts - prev_ts);
-            writer.write_varint(delta);
-            writer.write_u16le(e.channel);
-            prev_ts = e.ts;
+            out_ts.push_back(e.ts);
+            out_ch.push_back(e.channel);
             rr.advance();
-            written++;
-            if (written % 5000000 == 0) {
-                fprintf(stderr, "\r  %" PRIu64 "M written...", written / 1000000);
-                fflush(stderr);
-            }
         }
-        if (written >= 5000000) fprintf(stderr, "\n");
         rr.remove_file();
     } else {
-        // K-way merge with min-heap
-        fprintf(stderr, "Pass 2: merging %d runs...\n", (int)run_paths.size());
+        // K-way merge with min-heap into column buffers
+        fprintf(stderr, "Pass 2: merging %d runs into column buffers...\n", (int)run_paths.size());
 
         std::vector<RunReader*> readers;
         readers.reserve(run_paths.size());
@@ -530,14 +526,12 @@ int main(int argc, char* argv[]) {
             if (!rr->open_ok()) {
                 fprintf(stderr, "Error: could not open run file %s\n", rp.c_str());
                 for (auto r : readers) { r->remove_file(); delete r; }
-                fclose(fout);
                 for (auto& p : run_paths) remove(p.c_str());
                 return 1;
             }
             readers.push_back(rr);
         }
 
-        // Seed the heap
         std::priority_queue<HeapEntry,
                             std::vector<HeapEntry>,
                             std::greater<HeapEntry>> pq;
@@ -550,16 +544,11 @@ int main(int argc, char* argv[]) {
             }
         }
 
-        uint64_t prev_ts = 0, written = 0;
         while (!pq.empty()) {
             HeapEntry top = pq.top(); pq.pop();
-            uint64_t delta = (written == 0) ? top.ts : (top.ts - prev_ts);
-            writer.write_varint(delta);
-            writer.write_u16le(top.channel);
-            prev_ts = top.ts;
-            written++;
+            out_ts.push_back(top.ts);
+            out_ch.push_back(top.channel);
 
-            // Advance that run and push its next record
             RunReader* rr = readers[top.run_idx];
             if (rr->fill()) {
                 const RawEvent& e = rr->current();
@@ -567,16 +556,76 @@ int main(int argc, char* argv[]) {
                 rr->advance();
             }
 
-            if (written % 5000000 == 0) {
-                fprintf(stderr, "\r  %" PRIu64 "M merged...", written / 1000000);
+            if (out_ts.size() % 5000000 == 0) {
+                fprintf(stderr, "\r  %" PRIu64 "M merged...", (uint64_t)out_ts.size() / 1000000);
                 fflush(stderr);
             }
         }
-        if (written >= 5000000) fprintf(stderr, "\n");
+        if (out_ts.size() >= 5000000) fprintf(stderr, "\n");
 
-        // Clean up run readers and temp files
         for (auto rr : readers) { rr->remove_file(); delete rr; }
     }
+
+    fprintf(stderr, "Pass 3: encoding and compressing columns...\n");
+
+    // --- Encode timestamp deltas into a byte buffer ---
+    std::vector<uint8_t> ts_buf;
+    ts_buf.reserve(out_ts.size() * 4);
+    {
+        uint64_t prev = 0;
+        for (size_t i = 0; i < out_ts.size(); i++) {
+            uint64_t delta = (i == 0) ? out_ts[i] : (out_ts[i] - prev);
+            prev = out_ts[i];
+            uint8_t b[9];
+            int n = write_varint(b, delta);
+            for (int j = 0; j < n; j++) ts_buf.push_back(b[j]);
+        }
+    }
+
+    // --- Encode channels as packed uint16 LE ---
+    std::vector<uint8_t> ch_buf(out_ch.size() * 2);
+    for (size_t i = 0; i < out_ch.size(); i++) {
+        ch_buf[i * 2]     = out_ch[i] & 0xFF;
+        ch_buf[i * 2 + 1] = out_ch[i] >> 8;
+    }
+
+    // --- zlib compress both columns ---
+    auto ts_compressed = zlib_compress(ts_buf.data(), ts_buf.size());
+    auto ch_compressed = zlib_compress(ch_buf.data(), ch_buf.size());
+    if (ts_compressed.empty() || ch_compressed.empty()) {
+        return 1;
+    }
+
+    fprintf(stderr,
+        "  Timestamp column: %zu bytes -> %zu bytes compressed\n"
+        "  Channel column:   %zu bytes -> %zu bytes compressed\n",
+        ts_buf.size(), ts_compressed.size(),
+        ch_buf.size(), ch_compressed.size());
+
+    // --- Write output file ---
+    FILE* fout = fopen(output_path, "wb");
+    if (!fout) {
+        perror(output_path);
+        return 1;
+    }
+    Writer writer(fout);
+
+    const char MAGIC[8] = {'E','V','T','C','O','L','\0','\0'};
+    writer.write(MAGIC, 8);
+    writer.write_u8(2);   // version 2
+    writer.write_u8((uint8_t)NUM_HEADERS);
+    for (int i = 0; i < NUM_HEADERS; i++) writer.write_str16(meta[i]);
+    writer.write_u64le(total_events);
+
+    // Write compressed timestamp column
+    uint32_t ts_csize = (uint32_t)ts_compressed.size();
+    writer.write(&ts_csize, 4);
+    writer.write(ts_compressed.data(), ts_compressed.size());
+
+    // Write compressed channel column
+    uint32_t ch_csize = (uint32_t)ch_compressed.size();
+    writer.write(&ch_csize, 4);
+    writer.write(ch_compressed.data(), ch_compressed.size());
 
     writer.flush();
     fclose(fout);
