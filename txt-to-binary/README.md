@@ -67,7 +67,7 @@ When prompted, press `y` to confirm installation.
 **Step 3: Build evt2bin**
 Navigate to the project folder and build (in MSYS2 terminal):
 ```bash
-cd /c/path/to/your/project/txt-to-bianary
+cd /c/path/to/your/project/txt-to-binary
 make
 ```
 The compiled binary will be in `bin/evt2bin.exe`.
@@ -105,7 +105,7 @@ sudo apt install g++ zlib1g-dev make
 **Step 3: Build evt2bin**
 Navigate to the project and build:
 ```bash
-cd /mnt/c/path/to/your/project/txt-to-bianary
+cd /mnt/c/path/to/your/project/txt-to-binary
 make
 ```
 

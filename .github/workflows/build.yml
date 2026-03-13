@@ -1,4 +1,4 @@
-name: Build evt2bin Binaries
+name: Build evt2bin Binries
 
 on:
   push:
@@ -42,12 +42,12 @@ jobs:
           echo "C:\ProgramData\chocolatey\lib\mingw\tools\install\mingw64\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
       - name: Build
-        working-directory: txt-to-bianary
+        working-directory: txt-to-binary
         run: make clean && make static
 
       - name: Create Release Asset
         uses: softprops/action-gh-release@v1
         with:
-          files: txt-to-bianary/bin/${{ matrix.binary-name }}
+          files: txt-to-binary/bin/${{ matrix.binary-name }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
