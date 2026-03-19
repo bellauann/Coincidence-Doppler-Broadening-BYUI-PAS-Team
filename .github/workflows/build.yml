@@ -17,11 +17,11 @@ jobs:
             binary-name: evt2bin
             release-name: evt2bin-linux-x64
 
-          - os: macos-latest       # Intel (x86_64)
+          - os: macos-13       # Intel (x86_64)
             binary-name: evt2bin
             release-name: evt2bin-macos-x64
 
-          - os: macos-14           # Apple Silicon (arm64)
+          - os: macos-latest          # Apple Silicon (arm64)
             binary-name: evt2bin
             release-name: evt2bin-macos-arm64
 
