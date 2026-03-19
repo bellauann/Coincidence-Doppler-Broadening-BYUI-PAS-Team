@@ -17,7 +17,7 @@ jobs:
             binary-name: evt2bin
             release-name: evt2bin-linux-x64
 
-          - os: macos-13       # Intel (x86_64)
+          - os: macos-15-intel       # Intel (x86_64)
             binary-name: evt2bin
             release-name: evt2bin-macos-x64
 
