@@ -1,4 +1,4 @@
-name: Build evt2bin Binries
+name: Build evt2bin Binaries
 
 on:
   push:
@@ -32,19 +32,31 @@ jobs:
           sudo apt update
           sudo apt install -y g++ zlib1g-dev make
 
-      - name: Install dependencies (macOS)
+      # macOS: zlib ships with Xcode tools — no brew install needed.
+      # But /usr/lib/libz.a is gone on macOS 12+, so we locate the SDK's
+      # copy at build time using xcrun --show-sdk-path.
+      - name: Patch Makefile static target for macOS SDK zlib
         if: runner.os == 'macOS'
+        working-directory: txt-to-binary
         run: |
-          brew install zlib make
+          SDK_PATH=$(xcrun --show-sdk-path)
+          LIBZ="$SDK_PATH/usr/lib/libz.tbd"
+          echo "Using zlib: $LIBZ"
+          # Rewrite the macOS static line in the Makefile to use the SDK path
+          sed -i '' "s|/usr/lib/libz.a|$LIBZ|g" Makefile
 
+      # Windows: choco gives us g++ but not make.
+      # We install make via choco and use shell: bash for && syntax.
       - name: Install dependencies (Windows)
         if: runner.os == 'Windows'
         run: |
-          choco install mingw
+          choco install mingw make --yes
           echo "C:\ProgramData\chocolatey\lib\mingw\tools\install\mingw64\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          echo "C:\ProgramData\chocolatey\lib\make\tools\install\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
       - name: Build
         working-directory: txt-to-binary
+        shell: bash   # Needed on Windows so && works and make is found via bash PATH
         run: make clean && make static
 
       - name: Create Release Asset
