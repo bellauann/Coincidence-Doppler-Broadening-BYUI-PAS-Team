@@ -14,14 +14,20 @@ jobs:
       matrix:
         include:
           - os: ubuntu-latest
-            name: linux-x64
             binary-name: evt2bin
-          - os: macos-latest
-            name: macos-x64
+            release-name: evt2bin-linux-x64
+
+          - os: macos-latest       # Intel (x86_64)
             binary-name: evt2bin
+            release-name: evt2bin-macos-x64
+
+          - os: macos-14           # Apple Silicon (arm64)
+            binary-name: evt2bin
+            release-name: evt2bin-macos-arm64
+
           - os: windows-latest
-            name: windows-x64
             binary-name: evt2bin.exe
+            release-name: evt2bin-windows-x64.exe
 
     steps:
       - uses: actions/checkout@v4.1.1
@@ -42,7 +48,6 @@ jobs:
           SDK_PATH=$(xcrun --show-sdk-path)
           LIBZ="$SDK_PATH/usr/lib/libz.tbd"
           echo "Using zlib: $LIBZ"
-          # Rewrite the macOS static line in the Makefile to use the SDK path
           sed -i '' "s|/usr/lib/libz.a|$LIBZ|g" Makefile
 
       # Windows: choco gives us g++ but not make.
@@ -59,9 +64,14 @@ jobs:
         shell: bash   # Needed on Windows so && works and make is found via bash PATH
         run: make clean && make static
 
+      # Rename the binary to its platform-specific release name
+      - name: Rename binary
+        shell: bash
+        run: mv txt-to-binary/bin/${{ matrix.binary-name }} txt-to-binary/bin/${{ matrix.release-name }}
+
       - name: Create Release Asset
         uses: softprops/action-gh-release@v2
         with:
-          files: txt-to-binary/bin/${{ matrix.binary-name }}
+          files: txt-to-binary/bin/${{ matrix.release-name }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
