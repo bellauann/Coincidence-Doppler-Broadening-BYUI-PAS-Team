@@ -6,19 +6,151 @@ A high-performance C++ utility that converts large text event data files to a co
 
 `evt2bin` is designed to efficiently handle massive event logs by converting them from text to a space-optimized binary format. It automatically chooses the best sorting strategy based on available memory and dataset size, making it suitable for processing gigabytes of event data.
 
-## Features
+---
 
-- **Efficient Conversion**: Converts text event records to compact binary format with varint-encoded timestamps
-- **Smart Memory Management**: Automatically detects available RAM and uses optimal chunk sizes
-- **Hybrid Sorting Algorithm**:
-  - **In-memory sort** for datasets that fit in memory
-  - **External merge sort** with temporary run files for large datasets
-- **Data Validation**: Filters invalid records and validates channel numbers
-- **Buffered I/O**: 8 MB read/write buffers for high-speed processing
-- **Progress Reporting**: Real-time statistics on processing status
-- **Cross-platform**: Works on Linux, Windows, and macOS
+## Download & Setup (Pre-compiled Binaries)
 
-## Quick Start
+No compilation needed — just download the right binary for your platform from the [Releases page](https://github.com/bellauann/Coincidence-Doppler-Broadening-BYUI-PAS-Team/releases/) and follow the steps below.
+
+| File | Platform |
+|---|---|
+| `evt2bin-linux-x64` | Linux (64-bit) |
+| `evt2bin-macos-x64` | macOS — Intel (x86_64) |
+| `evt2bin-macos-arm64` | macOS — Apple Silicon (M1/M2/M3) |
+| `evt2bin-windows-x64.exe` | Windows (64-bit) |
+
+---
+
+### macOS (Intel & Apple Silicon)
+
+**Step 1: Remove the quarantine flag**
+
+macOS blocks binaries downloaded from the internet by default. Run this or it will refuse to open:
+```bash
+xattr -d com.apple.quarantine evt2bin-macos-arm64
+```
+*(Replace `arm64` with `x64` if you're on an Intel Mac)*
+
+**Step 2: Make it executable**
+```bash
+chmod +x evt2bin-macos-arm64
+```
+
+**Step 3: Run it**
+```bash
+./evt2bin-macos-arm64 input.txt output.bin
+```
+
+**Optional — Add to PATH so you can run it from anywhere**
+```bash
+sudo mv evt2bin-macos-arm64 /usr/local/bin/evt2bin
+```
+Then from any folder:
+```bash
+evt2bin input.txt output.bin
+```
+
+---
+
+### Windows
+
+**Step 1: Download `evt2bin-windows-x64.exe`**
+
+**Step 2: Run it**
+
+Open Command Prompt or PowerShell, navigate to your download folder, and run:
+```cmd
+.\evt2bin-windows-x64.exe input.txt output.bin
+```
+
+> **SmartScreen popup:** If Windows says "Windows protected your PC", click **More info** then **Run anyway**. This happens because the binary isn't signed with a paid certificate — it is safe to run.
+
+**Optional — Add to PATH so you can run it from anywhere**
+
+1. Move `evt2bin-windows-x64.exe` to a permanent folder, e.g. `C:\Tools\`
+2. Rename it to `evt2bin.exe` for shorter commands
+3. Add that folder to your PATH:
+   - Search **"environment variables"** in the Start menu
+   - Click **"Edit the system environment variables"**
+   - Click **"Environment Variables"**
+   - Under "System variables" find **Path** and click **Edit**
+   - Click **New** and type `C:\Tools\`
+   - Click OK on all windows
+4. Open a **new** Command Prompt window and run from anywhere:
+```cmd
+evt2bin input.txt output.bin
+```
+
+---
+
+### Linux
+
+**Step 1: Make it executable**
+```bash
+chmod +x evt2bin-linux-x64
+```
+
+**Step 2: Run it**
+```bash
+./evt2bin-linux-x64 input.txt output.bin
+```
+
+> **glibc error?** If you see `version 'GLIBC_2.3x' not found`, your distro is too old for the pre-compiled binary. See the [Building from Source](#building-from-source) section below.
+
+**Optional — Add to PATH so you can run it from anywhere**
+```bash
+sudo mv evt2bin-linux-x64 /usr/local/bin/evt2bin
+```
+Then from any folder:
+```bash
+evt2bin input.txt output.bin
+```
+
+---
+
+## Usage
+
+```bash
+evt2bin <input.txt> <output.bin> [options]
+```
+
+### Options
+
+- `--delete-input` — Delete the input text file after successful conversion
+- `--chunk-mb N` — Set memory limit per sort chunk in MB (default: auto-detect based on available RAM × 0.8, fallback 512 MB)
+
+### Examples
+
+```bash
+# Basic conversion
+evt2bin events.txt events.bin
+
+# Convert and delete input file
+evt2bin events.txt events.bin --delete-input
+
+# Specify custom memory chunk size
+evt2bin events.txt events.bin --chunk-mb 256
+```
+
+---
+
+## Converting Binary Back to CSV
+
+Use `bin2csv.py` to decompress and convert binary files back to CSV format:
+
+```bash
+python3 bin2csv.py events.bin events.csv
+```
+
+The CSV will have columns: `timestamp,channel,filter`
+
+> **Note:** `bin2csv.py` requires only Python 3 — no compilation needed. It automatically handles column-oriented compressed format (EVTCOL v2) and legacy interleaved format (EVTBIN v1).
+
+---
+
+## Building from Source
+
+If the pre-compiled binary doesn't work on your system, you can build from source.
 
 ### Prerequisites
 The only thing you need is a C++ compiler and the zlib library (both come standard on macOS).
@@ -179,41 +311,7 @@ Build the binary once on a Windows machine (takes 2 minutes with MSYS2), then up
 
 **For now:** You can use either approach. GitHub Actions (Option A) is more maintainable long-term, but if you just want something working quickly, build once on Windows and share the `.exe`.
 
-## Usage
-
-```bash
-./bin/evt2bin <input.txt> <output.bin> [options]
-```
-
-### Options
-
-- `--delete-input` — Delete the input text file after successful conversion
-- `--chunk-mb N` — Set memory limit per sort chunk in MB (default: auto-detect based on available RAM × 0.8, fallback 512 MB)
-
-### Examples
-
-```bash
-# Basic conversion
-./bin/evt2bin events.txt events.bin
-
-# Convert and delete input file
-./bin/evt2bin events.txt events.bin --delete-input
-
-# Specify custom memory chunk size
-./bin/evt2bin events.txt events.bin --chunk-mb 256
-```
-
-## Converting Binary Back to CSV
-
-Use `bin2csv.py` to decompress and convert binary files back to CSV format:
-
-```bash
-python3 bin2csv.py events.bin events.csv
-```
-
-The CSV will have columns: `timestamp,channel,filter`
-
-> **Note:** `bin2csv.py` requires only Python 3 — no compilation needed. It automatically handles column-oriented compressed format (EVTCOL v2) and legacy interleaved format (EVTBIN v1).
+---
 
 ## Input Format
 
