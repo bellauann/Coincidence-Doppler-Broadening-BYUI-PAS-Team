@@ -39,14 +39,11 @@ jobs:
           sudo apt install -y g++ zlib1g-dev make
 
       # macOS: zlib ships with Xcode tools — no brew install needed.
-      # Force /usr/bin/clang++ (Apple clang) so we don't accidentally link
-      # against Homebrew LLVM's libunwind, which won't exist on user machines.
       # /usr/lib/libz.a is gone on macOS 12+, so we locate the SDK's copy instead.
       - name: Patch Makefile static target for macOS SDK zlib
         if: runner.os == 'macOS'
         working-directory: txt-to-binary
         run: |
-          echo "CXX=/usr/bin/clang++" >> $GITHUB_ENV
           SDK_PATH=$(xcrun --show-sdk-path)
           LIBZ="$SDK_PATH/usr/lib/libz.tbd"
           echo "Using zlib: $LIBZ"
@@ -61,10 +58,19 @@ jobs:
           echo "C:\ProgramData\chocolatey\lib\mingw\tools\install\mingw64\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
           echo "C:\ProgramData\chocolatey\lib\make\tools\install\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
+      # On macOS, pass CXX directly on the make command line — this is the
+      # highest-priority override in Make and beats the Makefile's own CXX :=
+      # assignment. This forces Apple clang instead of Homebrew LLVM's g++,
+      # preventing a libunwind dependency that won't exist on user machines.
       - name: Build
         working-directory: txt-to-binary
-        shell: bash   # Needed on Windows so && works and make is found via bash PATH
-        run: make clean && make static
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" == "macOS" ]; then
+            make clean && make static CXX=/usr/bin/clang++
+          else
+            make clean && make static
+          fi
 
       # Rename the binary to its platform-specific release name
       - name: Rename binary
