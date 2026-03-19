@@ -17,11 +17,11 @@ jobs:
             binary-name: evt2bin
             release-name: evt2bin-linux-x64
 
-          - os: macos-15-intel       # Intel (x86_64)
+          - os: macos-15-intel     # Intel (x86_64)
             binary-name: evt2bin
             release-name: evt2bin-macos-x64
 
-          - os: macos-latest          # Apple Silicon (arm64)
+          - os: macos-14           # Apple Silicon (arm64)
             binary-name: evt2bin
             release-name: evt2bin-macos-arm64
 
@@ -39,12 +39,14 @@ jobs:
           sudo apt install -y g++ zlib1g-dev make
 
       # macOS: zlib ships with Xcode tools — no brew install needed.
-      # But /usr/lib/libz.a is gone on macOS 12+, so we locate the SDK's
-      # copy at build time using xcrun --show-sdk-path.
+      # Force /usr/bin/clang++ (Apple clang) so we don't accidentally link
+      # against Homebrew LLVM's libunwind, which won't exist on user machines.
+      # /usr/lib/libz.a is gone on macOS 12+, so we locate the SDK's copy instead.
       - name: Patch Makefile static target for macOS SDK zlib
         if: runner.os == 'macOS'
         working-directory: txt-to-binary
         run: |
+          echo "CXX=/usr/bin/clang++" >> $GITHUB_ENV
           SDK_PATH=$(xcrun --show-sdk-path)
           LIBZ="$SDK_PATH/usr/lib/libz.tbd"
           echo "Using zlib: $LIBZ"
